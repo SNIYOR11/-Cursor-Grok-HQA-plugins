@@ -1113,15 +1113,19 @@ function branchPullRequest({
   repo: string;
 }): ForgePullRequest {
   const rows = listPullRequests({ filter: "--head", branch, forge, repo });
-  const row = rows[0];
+  const openRows = rows.filter((row) => row.state === "OPEN");
+  const candidates = openRows.length > 0 ? openRows : rows;
+  const row = candidates[0];
   if (row === undefined) {
     throw new UserError(
       `branch ${branch} has no pull request; open one with ${forge} pr create, or resolve the frontier from a branch whose chain is fully submitted`
     );
   }
-  if (rows.length > 1) {
+  if (candidates.length > 1) {
     throw new UserError(
-      `branch ${branch} has multiple pull requests (${rows.map((item) => `#${item.pr}`).join(", ")}); close the stale ones first`
+      openRows.length > 0
+        ? `branch ${branch} has multiple open pull requests (${openRows.map((item) => `#${item.pr}`).join(", ")}); close the stale ones first`
+        : `branch ${branch} has multiple historical pull requests (${rows.map((item) => `#${item.pr}`).join(", ")}); cannot determine which one anchors the chain`
     );
   }
   return row;

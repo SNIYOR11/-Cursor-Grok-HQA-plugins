@@ -573,6 +573,67 @@ describe("Store", () => {
       });
     });
 
+    for (const state of ["open", "draft"] as const) {
+      it(`prefers the current ${state} ${forge} PR over historical PRs`, async () => {
+        const { directory, store } = await initializedStore();
+        const stack = await makeGitStack(directory);
+
+        await withFakeForge({
+          directory,
+          forge,
+          currentRows: forgeRows(forge, [
+            { number: 8, state: "closed", head: "stack/open", base: "main" },
+            { number: 9, state: "merged", head: "stack/open", base: "main" },
+            { number: 11, state, head: "stack/open", base: "stack/closed" },
+          ]),
+          operation: async () => {
+            const frontier = await store.frontier.set({ repo: stack.repo, forge });
+            expect(frontier.prs.map((pr) => pr.pr)).toEqual([10, 13, 11, 14]);
+            expect(frontier.lowestUnmerged).toBe(11);
+          },
+        });
+      });
+    }
+
+    it(`rejects multiple open ${forge} PRs without counting historical PRs`, async () => {
+      const { directory, store } = await initializedStore();
+      const stack = await makeGitStack(directory);
+
+      await withFakeForge({
+        directory,
+        forge,
+        currentRows: forgeRows(forge, [
+          { number: 8, state: "closed", head: "stack/open", base: "main" },
+          { number: 11, state: "open", head: "stack/open", base: "stack/closed" },
+          { number: 12, state: "draft", head: "stack/open", base: "main" },
+        ]),
+        operation: async () => {
+          await expect(store.frontier.set({ repo: stack.repo, forge })).rejects.toThrow(
+            "branch stack/open has multiple open pull requests (#11, #12); close the stale ones first"
+          );
+        },
+      });
+    });
+
+    it(`reports ambiguous historical ${forge} PRs without suggesting closing them`, async () => {
+      const { directory, store } = await initializedStore();
+      const stack = await makeGitStack(directory);
+
+      await withFakeForge({
+        directory,
+        forge,
+        currentRows: forgeRows(forge, [
+          { number: 8, state: "closed", head: "stack/open", base: "main" },
+          { number: 9, state: "merged", head: "stack/open", base: "stack/closed" },
+        ]),
+        operation: async () => {
+          await expect(store.frontier.set({ repo: stack.repo, forge })).rejects.toThrow(
+            "branch stack/open has multiple historical pull requests (#8, #9); cannot determine which one anchors the chain"
+          );
+        },
+      });
+    });
+
     it(`rejects unparseable ${forge} output loudly`, async () => {
       const { directory, store } = await initializedStore();
       const stack = await makeGitStack(directory);
